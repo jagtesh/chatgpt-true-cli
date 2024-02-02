@@ -1,0 +1,17 @@
+{
+  "name": "chatgpt-true-cli",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "elysia": "^0.8.15",
+    "puppeteer": "^21.10.0"
+  }
+}
