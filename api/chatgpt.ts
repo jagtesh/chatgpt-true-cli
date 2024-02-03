@@ -1,37 +1,50 @@
+// import puppeteer from "puppeteer";
 import type { Page, ElementHandle } from "puppeteer";
-import puppeteer from "puppeteer-extra";
+import fs from "fs";
+import os from "os";
+
+const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 
+const PUPPETEER_DATA = `${os.homedir()}/.config/puppeteer`;
 const CHATGPT_BASEURL = "http://chat.openai.com";
 
 // const visitNewPage = async url => await structuredClone.browser.newPage() && await page.goto(url);
 
-export async function createSession({ store }: HandlerOptions) {
-    console.log("Inside run");
-    const page = await store.browser.newPage();
-    await page.goto(CHATGPT_BASEURL);
-
-    let actionButton: any = await page.$('button[data-testid="login-button"]');
-    await actionButton?.click();
-
-    let form = await page.$('form[data-form-primary="true"]');
-    let textInput = await form?.$("#username.input");
-    textInput?.type(store.login);
-    actionButton = await form?.$('button[type="submit"]');
-    actionButton?.click();
-
-    console.log(await page.title());
-}
-
-export async function login(username: string, password: string, store: Store) {
+export async function createSession() {
+    // Make the puppeteer browser data folder - this preserves the login session
+    if (!fs.existsSync(PUPPETEER_DATA)) {
+        fs.mkdirSync(PUPPETEER_DATA);
+    }
     puppeteer.use(StealthPlugin());
     const browser = await puppeteer.launch({
         headless: false,
+        userDataDir: PUPPETEER_DATA,
     });
 
     //const context = await browser.createIncognitoBrowserContext();
 
     const page: Page = await browser.newPage();
+    // set custom headers to mimic a real browser
+    await page.setExtraHTTPHeaders({
+        referer: "www.google.com",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "en-US,en;q=0.9",
+        cookie: "prov=4268ad2a-4c02-3986-b062-d16504ebca7a; usr=p=%5b10%7c15%5d%5b160%7c%3bBest%3b%5d",
+    });
+    return { pageManager: page, browserManager: browser };
+}
+
+export async function loadBaseURL(store: Store) {
+    if (!store.puppeteer) return "NOT_INITIALIZED";
+    const { pageManager } = store.puppeteer;
+    await pageManager.goto(CHATGPT_BASEURL);
+}
+
+export async function login(store: Store) {
+    if (!store.puppeteer) return "NOT_INITIALIZED";
+    const { pageManager, browserManager, auth } = store.puppeteer;
+    const page = pageManager;
     await page.goto(`${CHATGPT_BASEURL}/auth/login`);
 
     await waitTimeout(2200);
@@ -52,7 +65,7 @@ export async function login(username: string, password: string, store: Store) {
     }
 
     await page.waitForSelector('input[name="username"]');
-    await page.type('input[name="username"]', username, { delay: 150 });
+    await page.type('input[name="username"]', auth.username, { delay: 150 });
     await page.waitForXPath(
         "/html/body/div/main/section/div/div/div/div[1]/div/form/div[2]/button",
     );
@@ -66,7 +79,7 @@ export async function login(username: string, password: string, store: Store) {
     }
 
     await page.waitForSelector('input[name="password"]');
-    await page.type('input[name="password"]', password, { delay: 150 });
+    await page.type('input[name="password"]', auth.password, { delay: 150 });
 
     await page.waitForXPath(
         "/html/body/div[1]/main/section/div/div/div/form/div[2]/button",
@@ -82,14 +95,6 @@ export async function login(username: string, password: string, store: Store) {
     let statusLogin = await validateLogin(page);
 
     if (statusLogin) {
-        store["puppeteer"] = {
-            pageManager: page,
-            browserManager: browser,
-            auth: {
-                username: username,
-                password: password,
-            },
-        };
         await waitTimeout(1800);
         return true;
     } else {
@@ -199,14 +204,6 @@ export async function checkErrorNetwork(store: Store) {
 export async function sendMessage(message: string, store: Store) {
     if (!store.puppeteer) return "NOT_INITIALIZED";
     const { pageManager, browserManager } = store.puppeteer;
-    /*
-    await pageManager.type(
-        'textarea[id="prompt-textarea"]',
-        message
-    );
-    */
-
-    //await pageManager.keyboard.type(message);
     await pageManager.$eval(
         'textarea[id="prompt-textarea"]',
         (el: any, value: any) => (el.value = value),
@@ -218,7 +215,6 @@ export async function sendMessage(message: string, store: Store) {
     await pageManager.type('textarea[id="prompt-textarea"]', " ");
 
     await waitTimeout(1700);
-    //await pageManager.keyboard.press('Enter');
     let pageClicked = true;
 
     try {
@@ -416,3 +412,11 @@ export async function stillLoggedIn(store: Store) {
         return false;
     }
 }
+
+export default {
+    createSession,
+    login,
+    loadBaseURL,
+    sendMessage,
+    stillLoggedIn,
+};

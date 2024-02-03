@@ -1,11 +1,8 @@
 // sadly a global state for now
 type Store = {
-    browser: Browser;
-    login: string;
-    password: string;
-    puppeteer?: {
-        pageManager: Page;
-        browserManager: Browser;
+    puppeteer: {
+        pageManager?: Page;
+        browserManager?: Browser;
         auth: {
             username: string;
             password: string;
@@ -18,9 +15,12 @@ type HandlerOptions = {
     request?: Request;
     response?: Response;
     body?: string | object;
+    [key: string]: any;
 };
 
 type NewChatResponse = {
     user: string;
     assistant: string;
 };
+
+type EmptyResponse = {};

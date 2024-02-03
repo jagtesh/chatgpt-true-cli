@@ -1,7 +1,13 @@
+/**
+ * This file contains the main entry point of the application.
+ * It initializes the necessary dependencies, defines the command line interface,
+ * and starts the backend server.
+ */
 import puppeteer, { Browser } from 'puppeteer';
 import { Command } from 'commander';
 import { Elysia } from 'elysia';
-import { newChat } from './routes';
+import { sendMessageHandler } from './routes';
+import chatgpt from './api/chatgpt';
 
 var store: Store;
 
@@ -11,20 +17,41 @@ const program = new Command();
 
 async function defaultInit() {
     // return a promise object for the broser
-    const browser = await puppeteer.launch({
-        headless: 'new',
-        // `headless: true` (default) enables old Headless;
-        // `headless: 'new'` enables new Headless;
-        // `headless: false` enables "headful" mode.
-    });
-
+    // const browser = await puppeteer.launch({
+    //     headless: 'new',
+    //     // `headless: true` (default) enables old Headless;
+    //     // `headless: 'new'` enables new Headless;
+    //     // `headless: false` enables "headful" mode.
+    // });
+    const { browserManager, pageManager } = await chatgpt.createSession();
     store = {
-        browser,
-        login: process.env['CHATGPT_LOGIN'] || '',
-        password: process.env['CHATGPT_PASSWORD'] || ''
+        puppeteer: {
+            browserManager,
+            pageManager,
+            auth: {
+                username: process.env['CHATGPT_LOGIN'] || '',
+                password: process.env['CHATGPT_PASSWORD'] || ''
+            }
+        }
     };
+
+    await chatgpt.loadBaseURL(store);
+    // login to chatgpt (might get asked to enter the 2FA code)
+    // await chatgpt.login(store);
+    // logged in now - session should be active and maintained in the server store
 }
 
+
+const isChatResponse = (response: any): response is NewChatResponse => typeof response.user === "string" && response.assistant === "string";
+
+
+
+/**
+ * Makes a post request to the server using http and retrieves the answer to a given question.
+ * The server should be running on localhost:5234 and the endpoint should be /chat.
+ * @param _options - The options object.
+ * @param cmd - The command object.
+ */
 async function clientAsk(_options: any, cmd: Command) {
     // Make a post request to the server using http
     // The server should be running on localhost:5234
@@ -32,24 +59,25 @@ async function clientAsk(_options: any, cmd: Command) {
     // The body should be the question
     // The response should be the answer
     const question = cmd.args.join("\n");
-    console.log("Command:", question);
+    console.debug("Command:", question);
     const response = await fetch('http://localhost:5234/chat', {
-        method: 'POST',
+        method: 'PUT',
         body: JSON.stringify({ question }),
         headers: { 'Content-Type': 'application/json' }
     });
+    console.debug(response)
     if (response && response.ok) {
-        const result = await response.json() as NewChatResponse;
-        if (typeof result.assistant !== "undefined") { console.log(result.assistant); }
-        else { console.error(`Invalid data <HTTP ${response.status}>`); }
-    } else {
-        console.error(`Got <HTTP ${response.status}>`);
+        const result = await response.json();
+        console.debug(result);
+        console.log(result.assistant);
+        return;
     }
+    console.error(`!!!<HTTP ${response.status}>!!!\n`);
 }
 
 program
     .command('ask')
-    .description('Ask a question to ChatGPT')
+    .description('Ask ChatGPT')
     .action(clientAsk);
 
 
@@ -75,10 +103,10 @@ async function startServer(options: object) {
     app.store = store;
 
     app
-        .get('/chat', () => 'Get Chat by ID')
-        .post('/chat', newChat)
-        .put('/chat', () => 'Post a new message to Chat')
-        .delete('/chat', () => 'Delete Chat by ID')
+        // .get('/chat', () => 'Get Chat by ID')
+        .post('/chat', () => '{"user":"", "assistant":""}')//sendMessageHandler)
+        .put('/chat', () => () => sendMessageHandler) //'{"user":"", "assistant":""}'
+        // .delete('/chat', () => 'Delete Chat by ID')
         .onStart(() => console.info(banner))
         .listen(5234);
 
@@ -87,7 +115,7 @@ async function startServer(options: object) {
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGQUIT', 'SIGKILL']) {
         process.on(signal, async () => {
             app.stop();
-            await store.browser?.close();
+            await store?.puppeteer?.browserManager?.close();
             console.error(`\nServer is being stopped by signal: ${signal}`);
         });
     }
